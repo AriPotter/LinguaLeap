@@ -40,15 +40,15 @@ describe('PronunciationPage', () => {
         }),
         ondataavailable: jest.fn((event: { data: Blob }) => {
            // Simulate data becoming available
-           // The actual Blob data doesn't matter much for the test logic
-           // We are creating a dummy blob here.
            const blob = new Blob(['mock audio chunk'], { type: 'audio/webm' });
-           mockMediaRecorderInstance.ondataavailable({ data: blob });
+            if (mockMediaRecorderInstance.ondataavailable) {
+                mockMediaRecorderInstance.ondataavailable({ data: blob });
+            }
         }),
         onerror: jest.fn(),
         onstop: jest.fn(), // This will be set by the component
         state: '',
-        mimeType: '',
+        mimeType: 'audio/webm', // Ensure mimeType is set
          addEventListener: jest.fn(),
          removeEventListener: jest.fn(),
          dispatchEvent: jest.fn(),
@@ -58,7 +58,6 @@ describe('PronunciationPage', () => {
          onpause: jest.fn(),
          onresume: jest.fn(),
          onstart: jest.fn(),
-         // onstop: jest.fn(), // Reset onstop handler
          isTypeSupported: jest.fn(() => true),
          stream: {
            getTracks: jest.fn(() => [{
@@ -70,6 +69,23 @@ describe('PronunciationPage', () => {
     (global.navigator.mediaDevices.getUserMedia as jest.Mock).mockResolvedValue({
         getTracks: jest.fn(() => [{ stop: jest.fn() }])
     });
+
+     // Mock FileReader
+     global.FileReader = jest.fn().mockImplementation(() => ({
+       readAsDataURL: jest.fn(function(this: any, blob: Blob) {
+         // Simulate async reading
+         setTimeout(() => {
+           this.onloadend?.({ target: { result: `data:${blob.type || 'audio/webm'};base64,bW9ja2F1ZGlv` } }); // mock base64 data
+         }, 0);
+       }),
+       onloadend: null,
+       onerror: null,
+       result: null,
+     })) as any;
+
+     // Mock URL.createObjectURL
+     global.URL.createObjectURL = jest.fn(() => 'blob:mockurl/12345');
+     global.URL.revokeObjectURL = jest.fn();
   });
 
 
@@ -94,7 +110,8 @@ describe('PronunciationPage', () => {
     // Check if MediaRecorder was instantiated and started
     await waitFor(() => {
        expect(global.MediaRecorder).toHaveBeenCalled();
-       // Find the stop button now
+       const mockRecorderInstance = (global.MediaRecorder as jest.Mock).mock.results[0].value;
+       expect(mockRecorderInstance.start).toHaveBeenCalled();
        expect(screen.getByRole('button', { name: /Stop/i })).toBeInTheDocument();
        expect(screen.queryByRole('button', { name: /Record/i })).not.toBeInTheDocument();
     });
@@ -110,16 +127,18 @@ describe('PronunciationPage', () => {
      // Wait for recording to start
      const stopButton = await screen.findByRole('button', { name: /Stop/i });
 
-     // Mock the ondataavailable and onstop behavior
+     // Get the mock recorder instance
      const mockRecorderInstance = (global.MediaRecorder as jest.Mock).mock.results[0].value;
      mockRecorderInstance.state = 'recording'; // Set state for stop condition check
 
-
+     // Mock the ondataavailable and onstop behavior
      await act(async () => {
         fireEvent.click(stopButton);
         // Manually trigger ondataavailable and onstop as they might not fire automatically in test env
-        const blob = new Blob(['mock audio data'], { type: 'audio/webm' });
-        mockRecorderInstance.ondataavailable({ data: blob });
+         const blob = new Blob(['mock audio data'], { type: 'audio/webm' });
+         if(mockRecorderInstance.ondataavailable) {
+             mockRecorderInstance.ondataavailable({ data: blob });
+         }
         mockRecorderInstance.onstop(); // Trigger onstop logic
      });
 
@@ -155,7 +174,9 @@ describe('PronunciationPage', () => {
             mockRecorderInstance.state = 'recording';
             const blob = new Blob(['mock audio data'], { type: 'audio/webm' });
             // Manually trigger events for state update
-            mockRecorderInstance.ondataavailable({ data: blob });
+             if(mockRecorderInstance.ondataavailable) {
+                 mockRecorderInstance.ondataavailable({ data: blob });
+             }
             fireEvent.click(stopButton); // This should trigger the instance's stop()
             mockRecorderInstance.onstop(); // Manually ensure onstop runs
        });
@@ -173,7 +194,7 @@ describe('PronunciationPage', () => {
 
       await waitFor(() => {
         expect(mockGetPronunciationFeedback).toHaveBeenCalledWith({
-          audioDataUri: 'data:audio/webm;base64,mockaudio=', // From mock FileReader
+          audioDataUri: 'data:audio/webm;base64,bW9ja2F1ZGlv', // From mock FileReader
           text: 'Can I have a glass of water?', // From mock Math.random
         });
       });
@@ -203,7 +224,9 @@ describe('PronunciationPage', () => {
             const mockRecorderInstance = (global.MediaRecorder as jest.Mock).mock.results[0].value;
              mockRecorderInstance.state = 'recording';
              const blob = new Blob(['mock audio data'], { type: 'audio/webm' });
-             mockRecorderInstance.ondataavailable({ data: blob });
+              if(mockRecorderInstance.ondataavailable) {
+                  mockRecorderInstance.ondataavailable({ data: blob });
+              }
             fireEvent.click(stopButton);
              mockRecorderInstance.onstop();
         });
@@ -218,11 +241,13 @@ describe('PronunciationPage', () => {
            expect(mockGetPronunciationFeedback).toHaveBeenCalled();
            expect(screen.getByRole('alert')).toBeInTheDocument();
            expect(screen.getByText('Error')).toBeInTheDocument();
-           expect(screen.getByText(/Failed to get pronunciation feedback.*AI analysis failed/i)).toBeInTheDocument();
+           // Check the specific error message related to AI failure
+           expect(screen.getByText(/Failed to get pronunciation feedback: AI analysis failed/i)).toBeInTheDocument();
            expect(screen.getByRole('button', { name: /Get Feedback/i })).toBeEnabled(); // Re-enabled
            expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
                title: "Feedback Error",
                variant: "destructive",
+               description: expect.stringContaining("Failed to get pronunciation feedback: AI analysis failed"),
            }));
        });
      });
@@ -257,27 +282,80 @@ describe('PronunciationPage', () => {
        mockMath.random = () => 0.5;
     });
 
-     it('handles microphone permission error', async () => {
-         const error = new Error("Permission denied");
-         (global.navigator.mediaDevices.getUserMedia as jest.Mock).mockRejectedValueOnce(error);
+    it('handles microphone permission denied error (NotAllowedError)', async () => {
+      const error = new Error("Permission denied");
+      error.name = 'NotAllowedError'; // Simulate permission denied specifically
+      (global.navigator.mediaDevices.getUserMedia as jest.Mock).mockRejectedValueOnce(error);
 
-         render(<PronunciationPage />);
-         const recordButton = screen.getByRole('button', { name: /Record/i });
+      render(<PronunciationPage />);
+      const recordButton = screen.getByRole('button', { name: /Record/i });
 
-         await act(async () => {
-            fireEvent.click(recordButton);
-         });
+      await act(async () => {
+         fireEvent.click(recordButton);
+      });
 
-         await waitFor(() => {
-             expect(screen.getByRole('alert')).toBeInTheDocument();
-             expect(screen.getByText('Error')).toBeInTheDocument();
-             expect(screen.getByText(/Could not access microphone/i)).toBeInTheDocument();
-             expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
-                title: "Microphone Error",
-                 variant: "destructive",
-             }));
-         });
-     });
+      await waitFor(() => {
+          expect(screen.getByRole('alert')).toBeInTheDocument();
+          expect(screen.getByText('Error')).toBeInTheDocument();
+          // Check for the specific permission denied message
+          expect(screen.getByText(/Microphone permission denied. Please grant permission/i)).toBeInTheDocument();
+          expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+             title: "Microphone Error",
+             variant: "destructive",
+             description: expect.stringContaining("Microphone permission denied."),
+          }));
+      });
+  });
+
+  it('handles microphone not found error (NotFoundError)', async () => {
+      const error = new Error("Requested device not found");
+      error.name = 'NotFoundError'; // Simulate no device found
+      (global.navigator.mediaDevices.getUserMedia as jest.Mock).mockRejectedValueOnce(error);
+
+      render(<PronunciationPage />);
+      const recordButton = screen.getByRole('button', { name: /Record/i });
+
+      await act(async () => {
+         fireEvent.click(recordButton);
+      });
+
+      await waitFor(() => {
+          expect(screen.getByRole('alert')).toBeInTheDocument();
+          expect(screen.getByText('Error')).toBeInTheDocument();
+          // Check for the specific not found message
+          expect(screen.getByText(/No microphone found. Please ensure a microphone is connected/i)).toBeInTheDocument();
+          expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+             title: "Microphone Error",
+             variant: "destructive",
+             description: expect.stringContaining("No microphone found."),
+          }));
+      });
+  });
+
+  it('handles generic microphone access error', async () => {
+      const error = new Error("Something else went wrong");
+      error.name = 'UnknownError'; // Simulate a generic error
+      (global.navigator.mediaDevices.getUserMedia as jest.Mock).mockRejectedValueOnce(error);
+
+      render(<PronunciationPage />);
+      const recordButton = screen.getByRole('button', { name: /Record/i });
+
+      await act(async () => {
+         fireEvent.click(recordButton);
+      });
+
+      await waitFor(() => {
+          expect(screen.getByRole('alert')).toBeInTheDocument();
+          expect(screen.getByText('Error')).toBeInTheDocument();
+          // Check for the generic error message including the specific error text
+          expect(screen.getByText(/Could not access microphone. Error: Something else went wrong/i)).toBeInTheDocument();
+          expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+             title: "Microphone Error",
+             variant: "destructive",
+             description: expect.stringContaining("Could not access microphone. Error: Something else went wrong"),
+          }));
+      });
+  });
 
 
 });

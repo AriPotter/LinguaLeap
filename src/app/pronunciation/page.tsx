@@ -53,36 +53,47 @@ export default function PronunciationPage() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorderRef.current = new MediaRecorder(stream);
+        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Specify mimeType if possible
         audioChunksRef.current = [];
 
         mediaRecorderRef.current.ondataavailable = (event) => {
-          audioChunksRef.current.push(event.data);
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
         };
 
         mediaRecorderRef.current.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Common browser format
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Use consistent type
           setAudioBlob(blob);
           stream.getTracks().forEach(track => track.stop()); // Stop the microphone access track
         };
 
         mediaRecorderRef.current.start();
         setIsRecording(true);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error accessing microphone:", err);
-        setError("Could not access microphone. Please check permissions.");
+        let userErrorMessage = "Could not access microphone.";
+        if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
+            userErrorMessage = "Microphone permission denied. Please grant permission in your browser settings and refresh the page.";
+        } else if (err.name === 'NotFoundError') {
+            userErrorMessage = "No microphone found. Please ensure a microphone is connected and enabled.";
+        } else {
+            userErrorMessage = `Could not access microphone. Error: ${err.message || 'Unknown error'}`;
+        }
+        setError(userErrorMessage);
         toast({
             variant: "destructive",
             title: "Microphone Error",
-            description: "Could not access microphone. Please ensure permissions are granted in your browser settings.",
+            description: userErrorMessage,
         });
       }
     } else {
-      setError("Audio recording is not supported in this browser.");
+      const unsupportedMessage = "Audio recording is not supported in this browser.";
+      setError(unsupportedMessage);
        toast({
            variant: "destructive",
            title: "Unsupported Browser",
-           description: "Audio recording is not supported in this browser.",
+           description: unsupportedMessage,
        });
     }
   };
@@ -103,9 +114,8 @@ export default function PronunciationPage() {
             if (reader.result.startsWith('data:')) {
                resolve(reader.result);
             } else {
-                // Add a default MIME type if necessary, e.g., 'audio/webm'
-                // Adjust based on the actual blob type if known
-               resolve(`data:${blob.type || 'audio/webm'};base64,${reader.result.split(',')[1]}`);
+                // Add the correct MIME type from the blob
+               resolve(`data:${blob.type || 'application/octet-stream'};base64,${reader.result.split(',')[1]}`);
             }
         } else {
            reject(new Error('Failed to convert blob to string'));
@@ -125,12 +135,17 @@ export default function PronunciationPage() {
     setFeedback(null);
 
     try {
+        // Ensure audioBlob has data before proceeding
+        if (audioBlob.size === 0) {
+           throw new Error("Recorded audio is empty. Please try recording again.");
+        }
+
         const audioDataUri = await blobToDataUri(audioBlob);
         console.log("Audio Data URI length:", audioDataUri.length); // Log length for debugging
 
-        // Basic check if it seems like a data URI
+        // Basic check if it seems like a data URI and has audio MIME type
          if (!audioDataUri.startsWith('data:audio/')) {
-            throw new Error("Generated data URI is not in the expected format.");
+            throw new Error(`Generated data URI is not in the expected audio format. Found: ${audioDataUri.substring(0, 30)}...`);
          }
 
          const result = await getPronunciationFeedback({
@@ -148,7 +163,7 @@ export default function PronunciationPage() {
       console.error("Error getting feedback:", err);
       let errorMessage = "Failed to get pronunciation feedback. Please try again.";
       if (err.message) {
-        errorMessage += ` Error: ${err.message}`;
+        errorMessage = `Failed to get pronunciation feedback: ${err.message}`;
       }
       setError(errorMessage);
       toast({
@@ -170,7 +185,7 @@ export default function PronunciationPage() {
         </CardHeader>
         <CardContent className="space-y-6">
            <div className="text-center p-4 border rounded-md bg-muted">
-              <p className="text-xl font-medium">{currentPhrase}</p>
+              <p className="text-xl font-medium">{currentPhrase || 'Loading phrase...'}</p>
            </div>
 
            <div className="flex justify-center space-x-4">
@@ -179,6 +194,7 @@ export default function PronunciationPage() {
                 variant={isRecording ? "destructive" : "default"}
                 size="lg"
                 className="w-32 transition-all duration-300 ease-in-out transform hover:scale-105"
+                disabled={!currentPhrase} // Disable if no phrase loaded
               >
                 {isRecording ? (
                   <>
@@ -201,7 +217,8 @@ export default function PronunciationPage() {
                <p className="text-sm text-muted-foreground flex items-center justify-center">
                     <CheckCircle className="w-4 h-4 mr-1 text-success"/> Recording complete. Ready for feedback.
                 </p>
-                <audio controls src={URL.createObjectURL(audioBlob)} className="w-full" />
+                {/* Add key to force re-render when audioBlob changes */}
+                <audio key={URL.createObjectURL(audioBlob)} controls src={URL.createObjectURL(audioBlob)} className="w-full" />
                  <Button
                    onClick={handleGetFeedback}
                    disabled={isLoading}
