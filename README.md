@@ -29,6 +29,11 @@ The app uses clean and modern typography, combined with intuitive icons for easy
 
 *   **Firebase:** Used for storing user data, progress, and other app-related information, ensuring seamless data synchronization and user experience.
 
+## 📸 Screenshots
+
+### Home Page
+![Home Page](screenshots\LinguaLeap_HomePage.png)
+
 ## Getting Started
 
 1. Clone the repository
