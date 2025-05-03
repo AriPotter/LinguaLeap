@@ -1,19 +1,18 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google'; // Use a standard Google Font like Inter
+import { Inter } from 'next/font/google';
 import './globals.css';
-import { Toaster } from '@/components/ui/toaster'; // Import Toaster
-import MainLayout from '@/components/layout/main-layout'; // Import MainLayout
+import { Toaster } from '@/components/ui/toaster';
+import MainLayout from '@/components/layout/main-layout';
+import { AuthProvider } from '@/contexts/auth-context'; // Import AuthProvider
 
 const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-inter', // Update CSS variable name
+  variable: '--font-inter',
 });
 
-// Removed Geist Mono as it's not explicitly needed by the design
-
 export const metadata: Metadata = {
-  title: 'LinguaLeap', // Updated App Name
-  description: 'Learn languages effectively with LinguaLeap.', // Updated Description
+  title: 'LinguaLeap',
+  description: 'Learn languages effectively with LinguaLeap.',
 };
 
 export default function RootLayout({
@@ -23,9 +22,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} font-sans antialiased`}> {/* Use updated variable */}
-        <MainLayout>{children}</MainLayout>
-        <Toaster /> {/* Add Toaster */}
+      <body className={`${inter.variable} font-sans antialiased`}>
+        <AuthProvider> {/* Wrap with AuthProvider */}
+          <MainLayout>{children}</MainLayout>
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   );
