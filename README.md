@@ -18,10 +18,6 @@ LinguaLeap boasts a clean, modern design with carefully chosen colors and typogr
 
 The app uses clean and modern typography, combined with intuitive icons for easy navigation and interaction.
 
-## Data Sources
-
-*   **Firebase:** Used for storing user data, progress, and other app-related information, ensuring seamless data synchronization and user experience.
-
 ## Technologies Used
 
 *   **Next.js:** A React framework for building user interfaces.
@@ -29,6 +25,44 @@ The app uses clean and modern typography, combined with intuitive icons for easy
 *   **TailwindCSS:** A utility-first CSS framework for rapid UI development.
 *   **Firebase:** A comprehensive platform for building web and mobile applications, used here for data storage.
 
+## Data Sources
+
+*   **Firebase:** Used for storing user data, progress, and other app-related information, ensuring seamless data synchronization and user experience.
+
 ## Getting Started
 
-To start exploring the project, navigate to `src/app/page.tsx`.
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/lingualeak.git
+```
+2. Install dependencies
+npm install
+
+3. Run the development server
+npm run dev
+
+4. Open http://localhost:3000 with your browser to see the result.
+
+
+## Project Structure
+- src/app/ - Main application pages and routing
+- src/components/ - Reusable UI components
+- src/ai/ - AI-related functionality and flows
+- src/contexts/ - React context providers
+- src/hooks/ - Custom React hooks
+- src/lib/ - Utility functions and shared code
+
+## Testing
+Run the test suite with:
+npm test
+
+The project uses Jest and React Testing Library for unit and integration tests.
+
+## Contributing
+1. Fork the repository
+2. Create your feature branch ( git checkout -b feature/AmazingFeature )
+3. Commit your changes ( git commit -m 'Add some AmazingFeature' )
+4. Push to the branch ( git push origin feature/AmazingFeature )
+5. Open a Pull Request
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
