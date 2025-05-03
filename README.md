@@ -32,7 +32,7 @@ The app uses clean and modern typography, combined with intuitive icons for easy
 ## 📸 Screenshots
 
 ### Home Page
-![Home Page](screenshots\LinguaLeap_HomePage.png)
+![Home Page](screenshots/LinguaLeap_HomePage.png)
 
 ## Getting Started
 
