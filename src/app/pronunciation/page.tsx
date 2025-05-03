@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Mic, StopCircle, Loader2, CheckCircle, MessageSquareWarning } from 'lucide-react';
+import { Mic, StopCircle, Loader2, CheckCircle, MessageSquareWarning, RefreshCw } from 'lucide-react'; // Added RefreshCw
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getPronunciationFeedback, PronunciationFeedbackOutput } from '@/ai/flows/pronunciation-feedback'; // Import GenAI flow
 import { useToast } from "@/hooks/use-toast";
@@ -16,12 +16,18 @@ const PHRASES_TO_PRACTICE = [
     "She sells seashells by the seashore."
 ];
 
+// Define a type for the error state
+interface ErrorState {
+  title: string;
+  description: string;
+}
+
 export default function PronunciationPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [feedback, setFeedback] = useState<PronunciationFeedbackOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null); // Updated error state type
   const [currentPhrase, setCurrentPhrase] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -41,7 +47,7 @@ export default function PronunciationPage() {
      setError(null);
      setIsLoading(false);
      if (isRecording) {
-       stopRecording();
+       stopRecording(); // Ensure recording stops if active
      }
    };
 
@@ -50,11 +56,19 @@ export default function PronunciationPage() {
     setError(null);
     setFeedback(null);
     setAudioBlob(null);
+    audioChunksRef.current = []; // Clear previous chunks
+
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Specify mimeType if possible
-        audioChunksRef.current = [];
+        // Check for supported mime types
+        const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? { mimeType: 'audio/webm;codecs=opus' }
+          : MediaRecorder.isTypeSupported('audio/webm')
+          ? { mimeType: 'audio/webm' }
+          : {}; // Fallback to default
+
+        mediaRecorderRef.current = new MediaRecorder(stream, options);
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) {
@@ -63,33 +77,61 @@ export default function PronunciationPage() {
         };
 
         mediaRecorderRef.current.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Use consistent type
-          setAudioBlob(blob);
+          if (audioChunksRef.current.length > 0) {
+              const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+              setAudioBlob(blob);
+          } else {
+              console.warn("Recording stopped but no audio chunks were available.");
+              setError({ title: "Recording Error", description: "No audio was recorded. Please try again." });
+               toast({
+                   variant: "destructive",
+                   title: "Recording Error",
+                   description: "No audio was recorded. Please try again.",
+               });
+          }
           stream.getTracks().forEach(track => track.stop()); // Stop the microphone access track
+          setIsRecording(false); // Ensure recording state is updated on stop
         };
+
+         mediaRecorderRef.current.onerror = (event) => {
+            console.error("MediaRecorder error:", event);
+            setError({ title: "Recording Error", description: "An error occurred during recording." });
+             toast({
+                 variant: "destructive",
+                 title: "Recording Error",
+                 description: "An error occurred during recording.",
+             });
+            setIsRecording(false); // Reset recording state on error
+            stream.getTracks().forEach(track => track.stop());
+         };
+
 
         mediaRecorderRef.current.start();
         setIsRecording(true);
       } catch (err: any) {
         console.error("Error accessing microphone:", err);
+        let errorTitle = "Microphone Error";
         let userErrorMessage = "Could not access microphone.";
         if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
             userErrorMessage = "Microphone permission denied. Please grant permission in your browser settings and refresh the page.";
         } else if (err.name === 'NotFoundError') {
             userErrorMessage = "No microphone found. Please ensure a microphone is connected and enabled.";
+        } else if (err.name === 'NotReadableError') {
+            userErrorMessage = "Could not start recording. Another application might be using the microphone.";
+            errorTitle = "Device Conflict";
         } else {
             userErrorMessage = `Could not access microphone. Error: ${err.message || 'Unknown error'}`;
         }
-        setError(userErrorMessage);
+        setError({ title: errorTitle, description: userErrorMessage });
         toast({
             variant: "destructive",
-            title: "Microphone Error",
+            title: errorTitle,
             description: userErrorMessage,
         });
       }
     } else {
       const unsupportedMessage = "Audio recording is not supported in this browser.";
-      setError(unsupportedMessage);
+      setError({ title: "Unsupported Browser", description: unsupportedMessage });
        toast({
            variant: "destructive",
            title: "Unsupported Browser",
@@ -101,7 +143,7 @@ export default function PronunciationPage() {
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
-      setIsRecording(false);
+      // Note: setIsRecording(false) is called in the onstop handler now
     }
   };
 
@@ -142,6 +184,8 @@ export default function PronunciationPage() {
 
         const audioDataUri = await blobToDataUri(audioBlob);
         console.log("Audio Data URI length:", audioDataUri.length); // Log length for debugging
+        console.log("Audio Data URI MIME type:", audioDataUri.substring(5, audioDataUri.indexOf(';'))); // Log MIME type
+
 
         // Basic check if it seems like a data URI and has audio MIME type
          if (!audioDataUri.startsWith('data:audio/')) {
@@ -161,14 +205,15 @@ export default function PronunciationPage() {
 
     } catch (err: any) {
       console.error("Error getting feedback:", err);
+      const errorTitle = "Feedback Error";
       let errorMessage = "Failed to get pronunciation feedback. Please try again.";
       if (err.message) {
         errorMessage = `Failed to get pronunciation feedback: ${err.message}`;
       }
-      setError(errorMessage);
+      setError({ title: errorTitle, description: errorMessage }); // Set error state with title
       toast({
          variant: "destructive",
-         title: "Feedback Error",
+         title: errorTitle,
          description: errorMessage,
        });
     } finally {
@@ -194,7 +239,7 @@ export default function PronunciationPage() {
                 variant={isRecording ? "destructive" : "default"}
                 size="lg"
                 className="w-32 transition-all duration-300 ease-in-out transform hover:scale-105"
-                disabled={!currentPhrase} // Disable if no phrase loaded
+                disabled={!currentPhrase || isLoading} // Disable record/stop during feedback loading
               >
                 {isRecording ? (
                   <>
@@ -206,8 +251,8 @@ export default function PronunciationPage() {
                   </>
                 )}
               </Button>
-             <Button onClick={selectRandomPhrase} variant="outline" size="lg">
-               New Phrase
+             <Button onClick={selectRandomPhrase} variant="outline" size="lg" disabled={isRecording || isLoading}> {/* Disable during recording/loading */}
+               <RefreshCw className="mr-2 h-4 w-4" /> New Phrase
              </Button>
            </div>
 
@@ -236,11 +281,11 @@ export default function PronunciationPage() {
              </div>
           )}
 
-          {error && (
+          {error && !isLoading && ( // Only show error if not loading feedback
             <Alert variant="destructive">
               <MessageSquareWarning className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
+              <AlertTitle>{error.title}</AlertTitle> {/* Use error title from state */}
+              <AlertDescription>{error.description}</AlertDescription> {/* Use error description from state */}
             </Alert>
           )}
 
